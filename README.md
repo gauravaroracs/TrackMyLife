@@ -1,36 +1,54 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Track My Life — Bird's Eye View
+
+A beautiful life tracking application built with Next.js that helps you visualize your progress across different goals with interactive timeline rails.
+
+## Features
+
+- 🎯 **Interactive Timeline Rails** - Drag human markers to log your progress
+- ⏰ **Live Countdown Timers** - See how much life is left until your 90th birthday
+- 📊 **New Year Counter** - Countdown to the next New Year
+- 📈 **Power of Habits Chart** - Visualize the 1% better per day principle
+- 💾 **Local Storage** - Your progress is automatically saved
+- 🎨 **Beautiful UI** - Modern design with Tailwind CSS
 
 ## Getting Started
 
-First, run the development server:
+First, install dependencies:
+
+```bash
+npm install
+```
+
+Then, run the development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000) to view the app.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Customization
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Edit `src/app/page.tsx` to customize:
+- Your birthdate (line 13: `BIRTHDATE`)
+- Target age (line 14: `TARGET_AGE`)
+- Track goals and sections
 
-## Learn More
+## Tech Stack
 
-To learn more about Next.js, take a look at the following resources:
+- [Next.js](https://nextjs.org) 16 - React framework
+- [React](https://react.dev) 19 - UI library
+- [TypeScript](https://www.typescriptlang.org) - Type safety
+- [Tailwind CSS](https://tailwindcss.com) - Styling
+- [Recharts](https://recharts.org) - Chart visualizations
+- [Lucide React](https://lucide.dev) - Icons
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deploy
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+The easiest way to deploy is using [Vercel](https://vercel.com):
 
-## Deploy on Vercel
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https://github.com/gauravaroracs/TrackMyLife)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## License
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+MIT
