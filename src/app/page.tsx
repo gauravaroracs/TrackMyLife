@@ -1,380 +1,1128 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Plus, Settings, GripVertical } from "lucide-react";
-import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Flame,
+  Flag,
+  GripVertical,
+  Mountain,
+  Sparkles,
+  Trophy,
+  BookOpen,
+  HeartHandshake,
+  Plus,
+  Settings,
+  X,
+} from "lucide-react";
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-/**
- * COPY NOTE (Next.js): add `"use client";` at the very top of your page file.
- * `npm i recharts lucide-react`
- */
+// OPTIONAL: if you want confetti, install canvas-confetti
+// import confetti from "canvas-confetti";
 
-// ---------- Config: your birthday & target age ----------
-const BIRTHDATE = new Date("2000-09-12T00:00:00");
-const TARGET_AGE = 90; // years
+/* ------------------------------------------------------------------ */
+/* Types & constants                                                  */
+/* ------------------------------------------------------------------ */
 
-// ---------- Types ----------
 type Section = "Studies" | "Personal Life";
 
-type Track = {
+type TaskTemplate = {
+  id: string;
+  label: string;
+};
+
+type DayState = {
+  completedTasks: string[];
+  note?: string;
+};
+
+type Goal = {
   id: string;
   label: string;
   section: Section;
-  weekSpan: number; // how many recent weeks to show in the rail window
-  weeklyTarget?: number; // optional, for analytics later
-  logs: string[]; // ISO dates of check-ins (e.g., "2025-11-01")
+  tasks: TaskTemplate[];
+  days: DayState[]; // length 7
 };
 
-// ---------- Seed data from your sketch ----------
-const seedTracks: Track[] = [
-  { id: "intro-llm", label: "Intro to LLM", section: "Studies", weekSpan: 8, logs: [] },
-  { id: "sdms", label: "SDMS", section: "Studies", weekSpan: 8, logs: [] },
-  { id: "pgm", label: "PGM", section: "Studies", weekSpan: 8, logs: [] },
-  { id: "crypto", label: "Intro to Crypto", section: "Studies", weekSpan: 8, logs: [] },
-  { id: "german-a2", label: "German A2", section: "Studies", weekSpan: 8, logs: [] },
-  { id: "content-workout", label: "Content Creation + Workout", section: "Personal Life", weekSpan: 8, logs: [] },
-  { id: "guitar", label: "Guitar", section: "Personal Life", weekSpan: 8, logs: [] },
-  { id: "eng-speaking", label: "Eng speaking", section: "Personal Life", weekSpan: 8, logs: [] },
-  { id: "dance", label: "Dance", section: "Personal Life", weekSpan: 8, logs: [] },
+type WeekSummary = {
+  id: string;
+  startISO: string;
+  endISO: string;
+  totalCompletedTasks: number;
+  totalPossibleTasks: number;
+  bestGoalId: string | null;
+  bestGoalLabel: string | null;
+  bestGoalCompletion: number;
+};
+
+type TrackerState = {
+  weekStartISO: string;
+  goals: Goal[];
+  history: WeekSummary[];
+};
+
+type HabitPoint = {
+  dayLabel: string;
+  real: number;
+  projected: number;
+};
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const NUM_DAYS = 7;
+const STORAGE_KEY = "TRACK_MY_LIFE_V3";
+
+/* ------------------------------------------------------------------ */
+/* Time helpers                                                       */
+/* ------------------------------------------------------------------ */
+
+function dayIndex(date: Date) {
+  return Math.floor(date.getTime() / DAY_MS);
+}
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function diffInDays(a: Date, b: Date) {
+  return dayIndex(a) - dayIndex(b);
+}
+
+/* ------------------------------------------------------------------ */
+/* Seed data                                                          */
+/* ------------------------------------------------------------------ */
+
+function emptyDay(): DayState {
+  return { completedTasks: [], note: "" };
+}
+
+function emptyDays(): DayState[] {
+  return Array.from({ length: NUM_DAYS }, () => emptyDay());
+}
+
+const seedGoals: Goal[] = [
+  {
+    id: "intro-llm",
+    label: "Intro to LLM",
+    section: "Studies",
+    tasks: [
+      { id: "llm-notes", label: "Review lecture notes" },
+      { id: "llm-ex", label: "Solve 2 practice questions" },
+      { id: "llm-reading", label: "Read 5 pages" },
+      { id: "llm-video", label: "Watch 10 min recap" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "sdms",
+    label: "SDMS",
+    section: "Studies",
+    tasks: [
+      { id: "sdms-reading", label: "Read 3 pages of script" },
+      { id: "sdms-quiz", label: "Do 5 quiz questions" },
+      { id: "sdms-notes", label: "Organise notes" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "pgm",
+    label: "PGM",
+    section: "Studies",
+    tasks: [
+      { id: "pgm-slides", label: "Scan slides 10 min" },
+      { id: "pgm-problem", label: "Attempt 1 problem" },
+      { id: "pgm-solution", label: "Check 1 solution" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "crypto",
+    label: "Intro to Crypto",
+    section: "Studies",
+    tasks: [
+      { id: "crypto-topic", label: "Read 1 topic" },
+      { id: "crypto-summary", label: "Write 3 bullet summary" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "german-a2",
+    label: "German A2",
+    section: "Studies",
+    tasks: [
+      { id: "german-vocab", label: "Learn 5 new words" },
+      { id: "german-speak", label: "Speak 5 min" },
+      { id: "german-grammar", label: "One grammar exercise" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "content-workout",
+    label: "Content Creation + Workout",
+    section: "Personal Life",
+    tasks: [
+      { id: "content-idea", label: "Brainstorm 3 ideas" },
+      { id: "content-draft", label: "Draft 1 post/reel" },
+      { id: "workout-20", label: "20 min workout" },
+      { id: "walk-steps", label: "5k steps" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "guitar",
+    label: "Guitar",
+    section: "Personal Life",
+    tasks: [
+      { id: "guitar-chords", label: "Practice chords 10 min" },
+      { id: "guitar-song", label: "Play 1 full song" },
+      { id: "guitar-metronome", label: "5 min with metronome" },
+    ],
+    days: emptyDays(),
+  },
+  {
+    id: "eng-speaking",
+    label: "Eng speaking",
+    section: "Personal Life",
+    tasks: [
+      { id: "eng-shadow", label: "Shadow 5 min video" },
+      { id: "eng-record", label: "Record 2 min monologue" },
+      { id: "eng-words", label: "Learn 5 new phrases" },
+    ],
+    days: emptyDays(),
+  },
 ];
 
-// ---------- Storage ----------
-const STORE_KEY = "life_timeline_state_v1";
+/* ------------------------------------------------------------------ */
+/* Storage helpers                                                    */
+/* ------------------------------------------------------------------ */
 
-function loadTracks(): Track[] {
+function defaultState(): TrackerState {
+  return {
+    weekStartISO: todayISO(),
+    goals: seedGoals,
+    history: [],
+  };
+}
+
+function loadState(): TrackerState {
+  if (typeof window === "undefined") return defaultState();
   try {
-    const raw = localStorage.getItem(STORE_KEY);
-    if (!raw) return seedTracks;
-    const parsed = JSON.parse(raw) as Track[];
-    return parsed.map((t) => ({ ...t, logs: Array.isArray(t.logs) ? t.logs : [] }));
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return defaultState();
+    return JSON.parse(raw) as TrackerState;
   } catch {
-    return seedTracks;
+    return defaultState();
   }
 }
 
-function saveTracks(tracks: Track[]) {
-  localStorage.setItem(STORE_KEY, JSON.stringify(tracks));
+function saveState(state: TrackerState) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
-// ---------- Time helpers ----------
-const DAY_MS = 24 * 60 * 60 * 1000;
-function dayIndex(d: Date) { return Math.floor(d.getTime() / DAY_MS); }
-function weekOfLife(d: Date, birth: Date) {
-  return Math.floor((dayIndex(d) - dayIndex(birth)) / 7);
-}
-function dateFromWeekAndDow(birth: Date, week: number, dow: number) {
-  const startIdx = dayIndex(birth) + week * 7 + dow; // 0..6
-  return new Date(startIdx * DAY_MS);
+/* ------------------------------------------------------------------ */
+/* Progress + visual helpers                                          */
+/* ------------------------------------------------------------------ */
+
+// Option C mapping: #tasks -> step within that day
+function stepForDay(tasksCompleted: number, totalTasks: number): number {
+  if (tasksCompleted <= 0) return 0;
+  if (tasksCompleted >= totalTasks) return 1.0; // giant leap
+  if (tasksCompleted >= 4) return 0.8;
+  if (tasksCompleted >= 2) return 0.5;
+  return 0.2;
 }
 
-function diffYMD(from: Date, to: Date) {
-  // Simple Y/M/D diff (to >= from)
-  let years = to.getFullYear() - from.getFullYear();
-  let months = to.getMonth() - from.getMonth();
-  let days = to.getDate() - from.getDate();
-  if (days < 0) {
-    months -= 1;
-    const prevMonthDays = new Date(to.getFullYear(), to.getMonth(), 0).getDate();
-    days += prevMonthDays;
+// Sum all daily steps (max 7 blocks)
+function totalBlocks(goal: Goal): number {
+  const totalTasks = goal.tasks.length;
+  const blocks = goal.days.reduce((sum, day) => {
+    const c = day.completedTasks.length;
+    return sum + stepForDay(c, totalTasks);
+  }, 0);
+  return Math.min(NUM_DAYS, Number(blocks.toFixed(2)));
+}
+
+function completionPct(goal: Goal): number {
+  return (totalBlocks(goal) / NUM_DAYS) * 100;
+}
+
+// streak = consecutive days from latest (right side) with any tasks
+function streakDays(goal: Goal): number {
+  let streak = 0;
+  for (let i = NUM_DAYS - 1; i >= 0; i--) {
+    if (goal.days[i].completedTasks.length > 0) streak += 1;
+    else break;
   }
-  if (months < 0) {
-    years -= 1;
-    months += 12;
+  return streak;
+}
+
+// dormancy: no tasks in last 2 days
+function isDormant(goal: Goal): boolean {
+  for (let i = NUM_DAYS - 1; i >= NUM_DAYS - 2 && i >= 0; i--) {
+    if (goal.days[i].completedTasks.length > 0) return false;
   }
-  return { years, months, days };
+  return true;
 }
 
-function timeToNewYear(now: Date) {
-  const target = new Date(now.getFullYear() + 1, 0, 1, 0, 0, 0, 0);
-  const ms = target.getTime() - now.getTime();
-  const sec = Math.max(0, Math.floor(ms / 1000));
-  const days = Math.floor(sec / 86400);
-  const hours = Math.floor((sec % 86400) / 3600);
-  const minutes = Math.floor((sec % 3600) / 60);
-  const seconds = sec % 60;
-  return { days, hours, minutes, seconds };
+// row tint based on completion %
+function rowTintClass(pct: number): string {
+  if (pct === 0) return "bg-gradient-to-r from-red-50 via-orange-50 to-amber-50";
+  if (pct <= 40)
+    return "bg-gradient-to-r from-amber-50 via-yellow-50 to-amber-50";
+  if (pct <= 70)
+    return "bg-gradient-to-r from-emerald-50 via-green-50 to-emerald-100";
+  if (pct < 100)
+    return "bg-gradient-to-r from-green-50 via-emerald-100 to-lime-100";
+  return "bg-gradient-to-r from-green-100 via-emerald-200 to-yellow-100";
 }
 
-function useNow(tickMs = 1000) {
-  const [now, setNow] = useState(new Date());
-  useEffect(() => { const id = setInterval(() => setNow(new Date()), tickMs); return () => clearInterval(id); }, [tickMs]);
-  return now;
+// figure stage by pct
+function figureStage(pct: number): 1 | 2 | 3 | 4 {
+  if (pct < 30) return 1;
+  if (pct < 60) return 2;
+  if (pct < 85) return 3;
+  return 4;
 }
 
-// 1% better per day curve
-function useOnePercentSeries(days = 21) {
-  return useMemo(() => {
-    const out: { day: number; progress: number }[] = [];
-    let value = 1;
-    for (let d = 0; d < days; d++) {
-      if (d > 0) value *= 1.01;
-      out.push({ day: d + 1, progress: Number(value.toFixed(4)) });
-    }
-    return out;
-  }, [days]);
+// build 7-day real vs projected series
+function buildHabitSeries(goals: Goal[]): HabitPoint[] {
+  let cumulativeReal = 0;
+  let projected = 1;
+  const points: HabitPoint[] = [];
+
+  for (let i = 0; i < NUM_DAYS; i++) {
+    const completedToday = goals.reduce(
+      (sum, g) => sum + g.days[i].completedTasks.length,
+      0
+    );
+    cumulativeReal += completedToday;
+    if (i > 0) projected *= 1.01;
+
+    points.push({
+      dayLabel: `D${i + 1}`,
+      real: cumulativeReal,
+      projected: Number(projected.toFixed(2)),
+    });
+  }
+  return points;
 }
 
-// ---------- UI: Track Row (check-in driven) ----------
-function TrackRow({
-  track,
-  currentWeek,
-  onCommit,
+// quote by overall completion
+function quoteForCompletion(overallPct: number): string {
+  if (overallPct === 0)
+    return "Every hero starts at level 1. Tiny steps count.";
+  if (overallPct < 30)
+    return "Small consistent moves beat random big efforts.";
+  if (overallPct < 60)
+    return "You’re building momentum. Keep the streak alive.";
+  if (overallPct < 90)
+    return "You’re in the growth zone. One more block each day.";
+  return "You’re on fire. Protect this streak like treasure.";
+}
+
+/* ------------------------------------------------------------------ */
+/* UI Components                                                      */
+/* ------------------------------------------------------------------ */
+
+// Evolving stick person climbing a mountain
+function StickFigure({
+  pct,
+  blocks,
+  dormant,
+  justHitHundred,
 }: {
-  track: Track;
-  currentWeek: number;
-  onCommit: (id: string, isoDate: string) => void;
+  pct: number;
+  blocks: number;
+  dormant: boolean;
+  justHitHundred: boolean;
 }) {
-  const totalTicks = track.weekSpan * 7; // days shown in the window
-  const startWeek = Math.max(0, currentWeek - track.weekSpan + 1); // last N weeks including current
-  const railRef = useRef<HTMLDivElement | null>(null);
+  const stage = figureStage(pct);
 
-  // derive current position from latest log in window (fallback to end of window today)
-  const latestLogInWindow = useMemo(() => {
-    const startDayIdx = dayIndex(dateFromWeekAndDow(BIRTHDATE, startWeek, 0));
-    const endDayIdx = startDayIdx + totalTicks - 1;
-    const latest = track.logs
-      .map((s) => new Date(s))
-      .filter((d) => {
-        const idx = dayIndex(d);
-        return idx >= startDayIdx && idx <= endDayIdx;
-      })
-      .sort((a, b) => b.getTime() - a.getTime())[0];
-    return latest;
-  }, [track.logs, startWeek, totalTicks]);
+  const xRatio = Math.min(1, blocks / NUM_DAYS); // 0..1
+  const yRatio = xRatio; // climb upwards as you progress
 
-  const todayPos = useMemo(() => {
-    const dow = (dayIndex(new Date()) - dayIndex(BIRTHDATE)) % 7; // 0..6
-    const relativeWeek = currentWeek - startWeek; // 0..(weekSpan-1)
-    return relativeWeek * 7 + dow; // falls within window
-  }, [currentWeek, startWeek]);
+  const bottomPx = 6 + yRatio * 32;
 
-  const derivedPos = useMemo(() => {
-    if (!latestLogInWindow) return Math.min(totalTicks - 1, Math.max(0, todayPos));
-    const w = weekOfLife(latestLogInWindow, BIRTHDATE) - startWeek; // 0..weekSpan-1
-    const dow = (dayIndex(latestLogInWindow) - dayIndex(BIRTHDATE)) % 7; // 0..6
-    return Math.max(0, Math.min(totalTicks - 1, w * 7 + dow));
-  }, [latestLogInWindow, startWeek, totalTicks, todayPos]);
+  const baseColor = dormant ? "#9ca3af" : "#4f46e5";
+  const glowColor = "#a3e635";
 
-  const [livePos, setLivePos] = useState<number>(derivedPos);
-  React.useEffect(() => setLivePos(derivedPos), [derivedPos]);
+  const scale = 0.9 + (stage - 1) * 0.15;
 
-  function pxToPosition(container: HTMLDivElement, px: number) {
-    const padding = 8;
-    const w = container.clientWidth - padding * 2;
-    const step = w / (totalTicks - 1);
-    const clamped = Math.max(padding, Math.min(container.clientWidth - padding, px));
-    const pos = Math.round((clamped - padding) / step);
-    return Math.max(0, Math.min(totalTicks - 1, pos));
-  }
+  const heroGlow =
+    stage === 4
+      ? {
+          filter: "drop-shadow(0 0 6px rgba(190, 242, 100, 0.9))",
+        }
+      : {};
 
-  function onPointerDown(e: React.PointerEvent) {
-    const el = railRef.current; if (!el) return;
-    (e.target as Element).setPointerCapture?.(e.pointerId);
-    const move = (evt: PointerEvent) => {
-      const rect = el.getBoundingClientRect();
-      const x = evt.clientX - rect.left;
-      setLivePos(pxToPosition(el, x));
-    };
-    const up = (evt: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      if (!el) return;
-      const rect = el.getBoundingClientRect();
-      const x = evt.clientX - rect.left;
-      const pos = pxToPosition(el, x);
-      const week = Math.floor(pos / 7);
-      const dow = pos % 7;
-      const realWeek = startWeek + week;
-      const date = dateFromWeekAndDow(BIRTHDATE, realWeek, dow);
-      const iso = date.toISOString().slice(0, 10);
-      onCommit(track.id, iso);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-  }
-
-  const week = Math.floor(livePos / 7) + 1; // 1-based inside window
-  const day = (livePos % 7) + 1;
-  const realWeek = startWeek + (week - 1);
-  const date = dateFromWeekAndDow(BIRTHDATE, realWeek, day - 1);
+  const animationClass = justHitHundred
+    ? "animate-bounce"
+    : dormant
+    ? "animate-pulse"
+    : "transition-transform duration-500 ease-in-out";
 
   return (
-    <div className="flex items-start gap-4 w-full py-4">
-      <div className="w-52 shrink-0 flex items-center gap-2 text-base font-medium text-neutral-900 pt-1">
-        <GripVertical className="w-4 h-4 text-neutral-400" />
-        <span>{track.label}</span>
-      </div>
-      <div className="flex-1">
-        <div className="relative group" ref={railRef} onPointerDown={onPointerDown}>
-          {/* Rail */}
-          <div className="h-2 rounded-full bg-neutral-200 transition-shadow group-hover:shadow-[0_0_0_4px_rgba(79,70,229,0.08)]" />
-          {/* Week separators */}
-          <div className="absolute inset-0 flex">
-            {Array.from({ length: track.weekSpan + 1 }).map((_, i) => (
-              <div key={i} className="border-r border-neutral-300/60 flex-1" />
-            ))}
-          </div>
-          {/* Day ticks */}
-          <div className="absolute inset-x-2 inset-y-0 flex items-center justify-between pointer-events-none">
-            {Array.from({ length: totalTicks }).map((_, i) => (
-              <div key={i} className="w-px h-3 bg-neutral-300/70" />
-            ))}
-          </div>
-          {/* Draggable human marker + tooltip */}
-          <HumanMarker railRef={railRef} pos={livePos} total={totalTicks} tooltip={date.toDateString()} />
-        </div>
-        {/* W · D indicator under the slider */}
-        <div className="mt-1 text-[11px] text-neutral-700 text-center">
-          <span className="inline-block px-2 py-0.5 rounded-full border border-neutral-200 bg-neutral-50 font-mono tabular-nums">
-            W{week} · D{day}
-          </span>
-        </div>
-      </div>
+    <div
+      className={`absolute ${animationClass}`}
+      style={{
+        left: `${xRatio * 100}%`,
+        bottom: bottomPx,
+        transform: "translateX(-50%)",
+        ...heroGlow,
+      }}
+    >
+      <svg width={30} height={36} viewBox="0 0 24 24">
+        {/* head */}
+        <circle
+          cx="12"
+          cy="5"
+          r={stage >= 3 ? 3.1 : 2.6}
+          fill={stage === 4 ? glowColor : baseColor}
+        />
+        {/* body */}
+        <line
+          x1="12"
+          y1="8"
+          x2="12"
+          y2="15"
+          stroke={baseColor}
+          strokeWidth={stage >= 3 ? 2.4 : 1.8}
+          strokeLinecap="round"
+        />
+        {/* arms */}
+        <line
+          x1="7"
+          y1="11"
+          x2="12"
+          y2="9.5"
+          stroke={baseColor}
+          strokeWidth={stage >= 3 ? 2.2 : 1.6}
+          strokeLinecap="round"
+        />
+        <line
+          x1="17"
+          y1="11"
+          x2="12"
+          y2="9.5"
+          stroke={baseColor}
+          strokeWidth={stage >= 3 ? 2.2 : 1.6}
+          strokeLinecap="round"
+        />
+        {/* legs */}
+        <line
+          x1="9"
+          y1="23"
+          x2="12"
+          y2="15"
+          stroke={baseColor}
+          strokeWidth={stage >= 3 ? 2.2 : 1.6}
+          strokeLinecap="round"
+        />
+        <line
+          x1="15"
+          y1="23"
+          x2="12"
+          y2="15"
+          stroke={baseColor}
+          strokeWidth={stage >= 3 ? 2.2 : 1.6}
+          strokeLinecap="round"
+        />
+
+        {/* cape for stage 3+ */}
+        {stage >= 3 && (
+          <path
+            d="M12 10 L7 15 L7 18 L12 15 Z"
+            fill={stage === 4 ? glowColor : "#a5b4fc"}
+            opacity={stage === 4 ? 0.9 : 0.7}
+          />
+        )}
+      </svg>
+      <div
+        style={{ transform: `scale(${scale})` }}
+        className="origin-bottom"
+      ></div>
     </div>
   );
 }
 
-function HumanMarker({ railRef, pos, total, tooltip }: { railRef: React.RefObject<HTMLDivElement | null>; pos: number; total: number; tooltip: string; }) {
-  const [left, setLeft] = useState(0);
-  useEffect(() => {
-    const el = railRef.current; if (!el) return;
-    const padding = 8;
-    const w = el.clientWidth - padding * 2;
-    const step = w / (total - 1);
-    setLeft(padding + step * pos);
-  }, [pos, railRef, total]);
-
+function MountainBackground() {
   return (
-    <div className="absolute -top-6" style={{ left: left - 10 }} aria-label="You">
-      {/* human silhouette in accent color */}
-      <div title={tooltip} className="transition-transform hover:scale-105">
-        <svg width="20" height="24" viewBox="0 0 24 24" role="img">
-          <circle cx="12" cy="6" r="3" className="fill-indigo-600" />
-          <rect x="11" y="9" width="2" height="6" className="fill-indigo-600" />
-          <path d="M6 12 L12 11 L18 12" className="stroke-indigo-600" strokeWidth="2" fill="none" />
-          <path d="M9 23 L12 18 L15 23" className="stroke-indigo-600" strokeWidth="2" fill="none" />
-        </svg>
-      </div>
-      <div className="w-0.5 h-3 bg-indigo-600 mx-auto" />
-    </div>
+    <svg
+      className="absolute inset-x-0 bottom-0 h-16 w-full text-neutral-200"
+      viewBox="0 0 200 60"
+      preserveAspectRatio="none"
+    >
+      <path
+        d="M0 50 L30 40 L60 35 L90 25 L120 15 L150 10 L180 5 L200 0 L200 60 L0 60 Z"
+        fill="currentColor"
+        opacity={0.4}
+      />
+    </svg>
   );
 }
 
-// ---------- Page ----------
-export default function LifeTimeline() {
-  const now = useNow();
-  const ny = timeToNewYear(now);
-  const ninetieth = useMemo(() => new Date(BIRTHDATE.getFullYear() + TARGET_AGE, BIRTHDATE.getMonth(), BIRTHDATE.getDate()), []);
-  const lifeLeft = ninetieth > now ? diffYMD(now, ninetieth) : { years: 0, months: 0, days: 0 };
-  const lifeRatio = Math.min(1, Math.max(0, (now.getTime() - BIRTHDATE.getTime()) / (ninetieth.getTime() - BIRTHDATE.getTime())));
-  const currentWeek = weekOfLife(now, BIRTHDATE);
-
-  // tracks state with load/save
-  const [tracks, setTracks] = useState<Track[]>(loadTracks());
-  useEffect(() => { if (tracks.length) saveTracks(tracks); }, [tracks]);
-
-  const studies = tracks.filter((t) => t.section === "Studies");
-  const personal = tracks.filter((t) => t.section === "Personal Life");
-
-  function commitCheckIn(id: string, isoDate: string) {
-    setTracks((prev) => prev.map((t) => {
-      if (t.id !== id) return t;
-      if (t.logs.includes(isoDate)) return t;
-      const next = { ...t, logs: [...t.logs, isoDate].sort() };
-      return next;
-    }));
-  }
-
-  function addGoal() {
-    const name = prompt("Goal name?");
-    if (!name) return;
-    const sectionInput = prompt("Section: Studies or Personal Life?", "Personal Life");
-    const section: Section = (sectionInput === "Studies" ? "Studies" : "Personal Life");
-    const weekSpan = Number(prompt("How many recent weeks to show?", "8") || 8);
-    const id = name.toLowerCase().replace(/\s+/g, "-");
-    setTracks((prev) => [...prev, { id, label: name, section, weekSpan, logs: [] }]);
-  }
-
-  const series = useOnePercentSeries(21);
-  const birthStr = BIRTHDATE.toLocaleDateString(undefined, { day: "2-digit", month: "long", year: "numeric" });
-
-  // simple top ruler for the visible window (uses the longest weekSpan among tracks)
-  const maxSpan = Math.max(1, ...tracks.map((t) => t.weekSpan));
-  const rulerWeeks = Array.from({ length: maxSpan }, (_, i) => currentWeek - maxSpan + 1 + i);
+function GoalRow({
+  goal,
+  onOpenModal,
+  justHitHundred,
+}: {
+  goal: Goal;
+  onOpenModal: () => void;
+  justHitHundred: boolean;
+}) {
+  const pct = completionPct(goal);
+  const blocks = totalBlocks(goal);
+  const streak = streakDays(goal);
+  const dormant = isDormant(goal);
+  const rowTint = rowTintClass(pct);
 
   return (
-    <div className="min-h-screen bg-white text-neutral-900">
-      {/* Header */}
-      <header className="sticky top-0 z-10 bg-white/90 backdrop-blur border-b border-neutral-200">
-        <div className="max-w-6xl mx-auto px-4 h-16 flex flex-col justify-center">
-          <div className="flex items-center justify-between">
-            <div className="text-2xl md:text-3xl font-semibold tracking-tight">Track My Life — Bird&apos;s‑Eye</div>
+    <div
+      className={`relative overflow-hidden rounded-2xl border border-neutral-200 ${rowTint} shadow-sm hover:shadow-md transition-shadow duration-300`}
+    >
+      <MountainBackground />
+
+      <div className="relative px-4 py-3 flex gap-4 items-start">
+        {/* name & streak */}
+        <button
+          onClick={onOpenModal}
+          className="flex items-start gap-2 text-left w-64 shrink-0 group"
+        >
+          <GripVertical className="w-4 h-4 mt-1 text-neutral-400 group-hover:text-neutral-600" />
+          <div>
             <div className="flex items-center gap-2">
-              <button className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border border-indigo-200 text-sm bg-indigo-50 text-indigo-700 hover:bg-indigo-100" onClick={addGoal}><Plus className="w-4 h-4" /> Add Goal</button>
-              <button className="p-2 rounded-xl border border-neutral-300 hover:bg-neutral-50" aria-label="Settings"><Settings className="w-4 h-4" /></button>
+              <span className="text-sm font-semibold text-neutral-900">
+                {goal.label}
+              </span>
+              {pct === 100 && (
+                <Trophy className="w-4 h-4 text-amber-500 drop-shadow-sm" />
+              )}
+            </div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className="text-xs text-neutral-600 font-mono">
+                Streak: {streak}d
+              </span>
+              {streak >= 3 && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-orange-600 font-semibold">
+                  <Flame className="w-3 h-3" />
+                  On fire
+                </span>
+              )}
             </div>
           </div>
-          <div className="text-xs text-neutral-600 mt-1">
-            Born <span className="font-medium">{birthStr}</span> — <span className="font-medium">{lifeLeft.years}y {lifeLeft.months}m {lifeLeft.days}d</span> left to age {TARGET_AGE}. &nbsp;•&nbsp; New Year in: <span className="font-medium">{ny.days}d {ny.hours}h {ny.minutes}m {ny.seconds}s</span>
+        </button>
+
+        {/* main track */}
+        <div className="flex-1 relative">
+          {/* checkpoints bar */}
+          <div className="relative h-8 mt-1">
+            {/* base line */}
+            <div className="absolute left-0 right-0 top-1/2 -translate-y-1/2 h-1.5 rounded-full bg-white/70 border border-neutral-200/80" />
+
+            {/* 7 day ticks */}
+            <div className="absolute inset-x-2 top-1/2 -translate-y-1/2 flex justify-between">
+              {Array.from({ length: NUM_DAYS }).map((_, i) => (
+                <div
+                  key={i}
+                  className="w-px h-3 bg-neutral-300/80"
+                />
+              ))}
+            </div>
+
+            {/* 25/50/75% dotted checkpoints */}
+            <div className="absolute inset-x-4 top-[80%] flex justify-between pointer-events-none">
+              {[0.25, 0.5, 0.75].map((ratio) => (
+                <div
+                  key={ratio}
+                  className="w-px h-2 border-l border-dashed border-neutral-400/60"
+                  style={{ marginLeft: `${ratio * 100}%` }}
+                />
+              ))}
+            </div>
+
+            {/* flags at day 3 & 7 */}
+            <Flag
+              className="absolute w-3 h-3 text-neutral-500"
+              style={{ left: `${(2 / (NUM_DAYS - 1)) * 100}%`, top: -8 }}
+            />
+            <Flag
+              className="absolute w-4 h-4 text-emerald-600"
+              style={{ right: 0, top: -10 }}
+            />
+
+            {/* stick figure */}
+            <StickFigure
+              pct={pct}
+              blocks={blocks}
+              dormant={dormant}
+              justHitHundred={justHitHundred}
+            />
+          </div>
+
+          {/* day labels */}
+          <div className="mt-1 flex justify-between text-[10px] text-neutral-600">
+            {Array.from({ length: NUM_DAYS }).map((_, i) => (
+              <span key={i}>Day {i + 1}</span>
+            ))}
+          </div>
+
+          {/* completion + pct */}
+          <div className="mt-1 text-[11px] text-neutral-700 flex gap-3 items-center">
+            <span className="font-mono">
+              {blocks.toFixed(1)} / {NUM_DAYS} blocks
+            </span>
+            <span className="font-mono">{pct.toFixed(0)}%</span>
+            {pct >= 50 && pct < 100 && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700">
+                <Sparkles className="w-3 h-3" />
+                Halfway hero
+              </span>
+            )}
+            {dormant && (
+              <span className="text-xs text-red-500">
+                No progress for 2+ days
+              </span>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Daily check-in modal ---------------------------------- */
+
+function DailyCheckinModal({
+  goals,
+  dayIndex,
+  onClose,
+  onToggleTask,
+  onUpdateNote,
+}: {
+  goals: Goal[];
+  dayIndex: number;
+  onClose: () => void;
+  onToggleTask: (goalId: string, taskId: string, dayIndex: number) => void;
+  onUpdateNote: (goalId: string, dayIndex: number, note: string) => void;
+}) {
+  const dayLabel = `Day ${dayIndex + 1}`;
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl border border-neutral-200 p-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-neutral-900">
+              Today&apos;s Check-in
+            </h2>
+            <p className="text-xs text-neutral-500">{dayLabel}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1 rounded-full hover:bg-neutral-100 text-neutral-500"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {goals.map((g) => (
+            <div
+              key={g.id}
+              className="rounded-xl border border-neutral-200/80 bg-neutral-50/60 px-3 py-2"
+            >
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-neutral-800">
+                  {g.label}
+                </span>
+                <span className="text-[11px] text-neutral-500 font-mono">
+                  {g.days[dayIndex].completedTasks.length} / {g.tasks.length} tasks
+                </span>
+              </div>
+
+              <ul className="space-y-1">
+                {g.tasks.map((t) => {
+                  const checked = g.days[dayIndex].completedTasks.includes(t.id);
+                  return (
+                    <li key={t.id} className="flex items-center gap-2 text-sm">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded border-neutral-300 text-indigo-600"
+                        checked={checked}
+                        onChange={() => onToggleTask(g.id, t.id, dayIndex)}
+                      />
+                      <span
+                        className={
+                          checked
+                            ? "line-through text-neutral-400"
+                            : "text-neutral-800"
+                        }
+                      >
+                        {t.label}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+
+              <textarea
+                className="mt-2 w-full rounded-lg border border-neutral-200 text-xs px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                placeholder="Add quick note (e.g., Studied 2 hours, felt tired)..."
+                value={g.days[dayIndex].note ?? ""}
+                onChange={(e) => onUpdateNote(g.id, dayIndex, e.target.value)}
+              />
+            </div>
+          ))}
+        </div>
+
+        <p className="mt-3 text-[11px] text-neutral-500">
+          Tip: Even completing one tiny task keeps your streak alive. Small
+          blocks compound into big progress.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Weekly summary modal ---------------------------------- */
+
+function WeekSummaryModal({
+  state,
+  onStartNewWeek,
+}: {
+  state: TrackerState;
+  onStartNewWeek: () => void;
+}) {
+  const { weekStartISO, goals } = state;
+
+  const allTasks = goals.reduce(
+    (sum, g) => sum + g.tasks.length * NUM_DAYS,
+    0
+  );
+  const completedTasks = goals.reduce(
+    (sum, g) =>
+      sum +
+      g.days.reduce(
+        (inner, d) => inner + d.completedTasks.length,
+        0
+      ),
+    0
+  );
+
+  const bestGoal = goals
+    .map((g) => ({ g, pct: completionPct(g) }))
+    .sort((a, b) => b.pct - a.pct)[0];
+
+  const overallPct = allTasks ? (completedTasks / allTasks) * 100 : 0;
+
+  const start = new Date(weekStartISO);
+  const end = new Date(start.getTime() + (NUM_DAYS - 1) * DAY_MS);
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/50">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl border border-emerald-200 p-5">
+        <div className="flex items-center gap-2 mb-2">
+          <Sparkles className="w-5 h-5 text-emerald-500" />
+          <h2 className="text-base font-semibold text-neutral-900">
+            Week Complete 🎉
+          </h2>
+        </div>
+        <p className="text-xs text-neutral-500 mb-3">
+          {start.toLocaleDateString()} – {end.toLocaleDateString()}
+        </p>
+
+        <div className="space-y-2 text-sm">
+          <div className="flex justify-between">
+            <span>Total tasks completed</span>
+            <span className="font-mono">{completedTasks}</span>
+          </div>
+          <div className="flex justify-between">
+            <span>Overall completion</span>
+            <span className="font-mono">{overallPct.toFixed(0)}%</span>
+          </div>
+          <div className="flex justify-between items-center mt-1">
+            <span>Best habit</span>
+            {bestGoal ? (
+              <span className="font-medium flex items-center gap-1">
+                {bestGoal.g.label}
+                <Trophy className="w-4 h-4 text-amber-500" />
+                <span className="font-mono text-xs">
+                  {bestGoal.pct.toFixed(0)}%
+                </span>
+              </span>
+            ) : (
+              <span className="font-mono text-xs">—</span>
+            )}
+          </div>
+        </div>
+
+        <button
+          onClick={onStartNewWeek}
+          className="mt-4 w-full inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 text-white text-sm font-semibold py-2 hover:bg-emerald-700"
+        >
+          Start New Week
+        </button>
+
+        <p className="mt-2 text-[11px] text-neutral-500 text-center">
+          Your progress is saved as a card. New week, same mission: move your
+          little heroes forward.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ---------- History card ------------------------------------------ */
+
+function LastWeekCard({ summary }: { summary: WeekSummary }) {
+  const start = new Date(summary.startISO);
+  const end = new Date(summary.endISO);
+  return (
+    <div className="mt-2 rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs flex items-center justify-between">
+      <div>
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-neutral-800">
+            Last week recap
+          </span>
+          <Sparkles className="w-3 h-3 text-emerald-500" />
+        </div>
+        <p className="text-[11px] text-neutral-500">
+          {start.toLocaleDateString()} – {end.toLocaleDateString()}
+        </p>
+      </div>
+      <div className="text-right">
+        <div className="font-mono">
+          {summary.totalCompletedTasks}/{summary.totalPossibleTasks} tasks
+        </div>
+        {summary.bestGoalLabel && (
+          <div className="text-[11px] text-neutral-600 flex items-center justify-end gap-1">
+            <Trophy className="w-3 h-3 text-amber-500" />
+            <span>
+              {summary.bestGoalLabel} ({summary.bestGoalCompletion.toFixed(0)}%)
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Main page                                                          */
+/* ------------------------------------------------------------------ */
+
+export default function TrackMyLifePage() {
+  const [state, setState] = useState<TrackerState>(() => loadState());
+  const [showCheckin, setShowCheckin] = useState(false);
+  const [showWeekSummary, setShowWeekSummary] = useState(false);
+  const [lastCompletionByGoal, setLastCompletionByGoal] = useState<
+    Record<string, number>
+  >({});
+
+  // current day index in this week (0..6)
+  const today = new Date();
+  const weekStart = new Date(state.weekStartISO);
+  const diff = diffInDays(today, weekStart);
+  const dayIndex = Math.max(0, Math.min(NUM_DAYS - 1, diff));
+
+  const weekFinished = diff >= NUM_DAYS;
+
+  useEffect(() => {
+    if (weekFinished) setShowWeekSummary(true);
+  }, [weekFinished]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    saveState(state);
+  }, [state]);
+
+  const goals = state.goals;
+
+  const overallCompletion = useMemo(() => {
+    const totalBlocksAll = goals.reduce(
+      (sum, g) => sum + totalBlocks(g),
+      0
+    );
+    return (totalBlocksAll / (NUM_DAYS * goals.length)) * 100;
+  }, [goals]);
+
+  const habitSeries = useMemo(() => buildHabitSeries(goals), [goals]);
+
+  // detect newly completed 100% for celebration
+  useEffect(() => {
+    const map: Record<string, number> = {};
+    for (const g of goals) {
+      map[g.id] = completionPct(g);
+    }
+
+    const justHitIds = Object.keys(map).filter((id) => {
+      const prev = lastCompletionByGoal[id] ?? 0;
+      return prev < 100 && map[id] === 100;
+    });
+
+    if (justHitIds.length > 0) {
+      // OPTIONAL confetti:
+      // confetti({ particleCount: 80, spread: 60, origin: { y: 0.3 } });
+      // (or trigger sound here)
+    }
+
+    setLastCompletionByGoal(map);
+  }, [goals, lastCompletionByGoal]);
+
+  function updateState(updater: (prev: TrackerState) => TrackerState) {
+    setState((prev) => updater(prev));
+  }
+
+  function handleToggleTask(goalId: string, taskId: string, dIndex: number) {
+    updateState((prev) => {
+      const nextGoals = prev.goals.map((g) => {
+        if (g.id !== goalId) return g;
+        const days = g.days.map((day, idx) => {
+          if (idx !== dIndex) return day;
+          const completed = new Set(day.completedTasks);
+          if (completed.has(taskId)) completed.delete(taskId);
+          else completed.add(taskId);
+          return { ...day, completedTasks: Array.from(completed) };
+        });
+        return { ...g, days };
+      });
+      return { ...prev, goals: nextGoals };
+    });
+  }
+
+  function handleUpdateNote(goalId: string, dIndex: number, note: string) {
+    updateState((prev) => {
+      const nextGoals = prev.goals.map((g) => {
+        if (g.id !== goalId) return g;
+        const days = g.days.map((day, idx) =>
+          idx === dIndex ? { ...day, note } : day
+        );
+        return { ...g, days };
+      });
+      return { ...prev, goals: nextGoals };
+    });
+  }
+
+  function handleStartNewWeek() {
+    const start = new Date(state.weekStartISO);
+    const end = new Date(start.getTime() + (NUM_DAYS - 1) * DAY_MS);
+
+    const totalPossible = state.goals.reduce(
+      (sum, g) => sum + g.tasks.length * NUM_DAYS,
+      0
+    );
+    const totalCompleted = state.goals.reduce(
+      (sum, g) =>
+        sum +
+        g.days.reduce(
+          (inner, d) => inner + d.completedTasks.length,
+          0
+        ),
+      0
+    );
+
+    const bestGoal = state.goals
+      .map((g) => ({ g, pct: completionPct(g) }))
+      .sort((a, b) => b.pct - a.pct)[0];
+
+    const summary: WeekSummary = {
+      id: `${state.weekStartISO}`,
+      startISO: state.weekStartISO,
+      endISO: end.toISOString().slice(0, 10),
+      totalCompletedTasks: totalCompleted,
+      totalPossibleTasks: totalPossible,
+      bestGoalId: bestGoal?.g.id ?? null,
+      bestGoalLabel: bestGoal?.g.label ?? null,
+      bestGoalCompletion: bestGoal?.pct ?? 0,
+    };
+
+    const newWeekStart = todayISO();
+
+    setState({
+      weekStartISO: newWeekStart,
+      goals: state.goals.map((g) => ({
+        ...g,
+        days: emptyDays(),
+      })),
+      history: [...state.history, summary],
+    });
+
+    setShowWeekSummary(false);
+  }
+
+  const studies = goals.filter((g) => g.section === "Studies");
+  const personal = goals.filter((g) => g.section === "Personal Life");
+  const lastWeek = state.history[state.history.length - 1];
+
+  return (
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      {/* Header */}
+      <header className="sticky top-0 z-20 bg-neutral-50/80 backdrop-blur border-b border-neutral-200">
+        <div className="max-w-6xl mx-auto px-4 py-3 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="h-10 w-10 rounded-2xl bg-gradient-to-br from-indigo-500 via-sky-500 to-emerald-400 flex items-center justify-center shadow-md text-white">
+              <Mountain className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-xl md:text-2xl font-semibold tracking-tight">
+                  Track My Life
+                </h1>
+                <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] text-emerald-700 border border-emerald-200">
+                  <Sparkles className="w-3 h-3" />
+                  7-Day Habit Journey
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-500">
+                Make your tiny stick hero stronger every day.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowCheckin(true)}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-indigo-600 text-white text-xs font-semibold px-3 py-1.5 hover:bg-indigo-700 shadow-sm"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Today&apos;s Check-in
+            </button>
+            <button className="p-2 rounded-xl border border-neutral-300 hover:bg-neutral-100">
+              <Settings className="w-4 h-4 text-neutral-500" />
+            </button>
           </div>
         </div>
       </header>
 
-      <main className="max-w-6xl mx-auto px-4 py-6 space-y-10">
-        {/* Life master bar */}
-        <section className="space-y-2">
-          <div className="relative h-3 rounded-full bg-neutral-200">
-            <div className="absolute inset-y-0 left-0 rounded-full bg-neutral-900" style={{ width: `${(lifeRatio * 100).toFixed(2)}%` }} />
+      {/* Main content */}
+      <main className="max-w-6xl mx-auto px-4 py-4 space-y-6">
+        {/* Quote + overall progress */}
+        <section className="rounded-2xl border border-neutral-200 bg-white px-4 py-3 flex items-center justify-between gap-4 shadow-sm">
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-5 h-5 text-indigo-600" />
+            <p className="text-xs text-neutral-700 max-w-md">
+              {quoteForCompletion(overallCompletion)}
+            </p>
           </div>
-          {/* Age/Week ruler for current window */}
-          {tracks.length > 0 && (
-            <div className="flex justify-between text-[11px] text-neutral-500">
-              {rulerWeeks.map((w) => (
-                <span key={w} className="tabular-nums">W{w}</span>
-              ))}
+          <div className="text-right">
+            <div className="text-xs text-neutral-500">This week progress</div>
+            <div className="text-lg font-mono font-semibold">
+              {overallCompletion.toFixed(0)}%
             </div>
-          )}
+            <div className="text-[11px] text-neutral-500">
+              Day {dayIndex + 1} of 7
+            </div>
+          </div>
         </section>
 
+        {lastWeek && <LastWeekCard summary={lastWeek} />}
+
         {/* Studies */}
-        <Section title="STUDIES">
-          {studies.map((t) => (
-            <TrackRow key={t.id} track={t} currentWeek={currentWeek} onCommit={commitCheckIn} />
-          ))}
-        </Section>
-
-        {/* Personal Life */}
-        <Section title="PERSONAL LIFE">
-          {personal.map((t) => (
-            <TrackRow key={t.id} track={t} currentWeek={currentWeek} onCommit={commitCheckIn} />
-          ))}
-        </Section>
-
-        {/* Power of Habits Chart */}
         <section>
-          <h3 className="text-sm font-semibold mb-2">Power of habits — +1% every day</h3>
-          <div className="w-full h-56 border border-neutral-200 rounded-2xl p-3">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="h-7 w-7 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-500 flex items-center justify-center text-white shadow-sm">
+              <BookOpen className="w-4 h-4" />
+            </div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-600">
+              Studies
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {studies.map((g) => (
+              <GoalRow
+                key={g.id}
+                goal={g}
+                onOpenModal={() => setShowCheckin(true)}
+                justHitHundred={
+                  (lastCompletionByGoal[g.id] ?? 0) < 100 &&
+                  completionPct(g) === 100
+                }
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* Personal life */}
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <div className="h-7 w-7 rounded-xl bg-gradient-to-br from-rose-500 to-amber-500 flex items-center justify-center text-white shadow-sm">
+              <HeartHandshake className="w-4 h-4" />
+            </div>
+            <h2 className="text-xs font-semibold uppercase tracking-[0.2em] text-neutral-600">
+              Personal Life
+            </h2>
+          </div>
+          <div className="space-y-3">
+            {personal.map((g) => (
+              <GoalRow
+                key={g.id}
+                goal={g}
+                onOpenModal={() => setShowCheckin(true)}
+                justHitHundred={
+                  (lastCompletionByGoal[g.id] ?? 0) < 100 &&
+                  completionPct(g) === 100
+                }
+              />
+            ))}
+          </div>
+        </section>
+
+        {/* 7-day trend graph */}
+        <section>
+          <h3 className="text-xs font-semibold text-neutral-700 mb-1">
+            7-Day Trend — Real vs Projected
+          </h3>
+          <div className="w-full h-52 rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
             <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={series} margin={{ top: 10, right: 20, bottom: 0, left: 0 }}>
+              <LineChart
+                data={habitSeries}
+                margin={{ top: 10, right: 20, bottom: 10, left: 0 }}
+              >
                 <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="day" tick={{ fontSize: 12 }} label={{ value: "Days", position: "insideBottomRight", offset: -6 }} />
-                <YAxis tick={{ fontSize: 12 }} label={{ value: "Progress (x)", angle: -90, position: "insideLeft" }} />
+                <XAxis dataKey="dayLabel" tick={{ fontSize: 11 }} />
+                <YAxis tick={{ fontSize: 11 }} />
                 <Tooltip />
-                <Line type="monotone" dataKey="progress" dot={false} />
+                <Line
+                  type="monotone"
+                  dataKey="real"
+                  name="Real tasks"
+                  stroke="#111827"
+                  dot={{ r: 3 }}
+                />
+                <Line
+                  type="monotone"
+                  dataKey="projected"
+                  name="Projected (+1%/day)"
+                  stroke="#4f46e5"
+                  strokeDasharray="4 2"
+                  dot={false}
+                />
               </LineChart>
             </ResponsiveContainer>
           </div>
         </section>
       </main>
-    </div>
-  );
-}
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <section className="border-t border-neutral-200 pt-4">
-      <h2 className="text-[11px] uppercase tracking-wider text-neutral-500 mb-2">{title}</h2>
-      <div>{children}</div>
-    </section>
+      {/* Modals */}
+      {showCheckin && !weekFinished && (
+        <DailyCheckinModal
+          goals={goals}
+          dayIndex={dayIndex}
+          onClose={() => setShowCheckin(false)}
+          onToggleTask={handleToggleTask}
+          onUpdateNote={handleUpdateNote}
+        />
+      )}
+
+      {showWeekSummary && (
+        <WeekSummaryModal state={state} onStartNewWeek={handleStartNewWeek} />
+      )}
+    </div>
   );
 }
